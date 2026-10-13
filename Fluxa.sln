@@ -1,0 +1,43 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{57ED8985-569E-40F3-9939-DBA3EE668AF0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fluxa.Core", "src\Fluxa.Core\Fluxa.Core.csproj", "{1551D603-5ACA-4728-926E-C132035EBA98}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fluxa.App", "src\Fluxa.App\Fluxa.App.csproj", "{6D9FA3DC-01CF-4813-A4E3-9E2AB327DE70}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{358DE74E-09DB-4DD2-92EF-F94B761167CF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fluxa.Tests", "tests\Fluxa.Tests\Fluxa.Tests.csproj", "{C58D2408-837E-414C-AC0F-77C17500016C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1551D603-5ACA-4728-926E-C132035EBA98}.Debug|x64.ActiveCfg = Debug|x64
+		{1551D603-5ACA-4728-926E-C132035EBA98}.Debug|x64.Build.0 = Debug|x64
+		{1551D603-5ACA-4728-926E-C132035EBA98}.Release|x64.ActiveCfg = Release|x64
+		{1551D603-5ACA-4728-926E-C132035EBA98}.Release|x64.Build.0 = Release|x64
+		{6D9FA3DC-01CF-4813-A4E3-9E2AB327DE70}.Debug|x64.ActiveCfg = Debug|x64
+		{6D9FA3DC-01CF-4813-A4E3-9E2AB327DE70}.Debug|x64.Build.0 = Debug|x64
+		{6D9FA3DC-01CF-4813-A4E3-9E2AB327DE70}.Release|x64.ActiveCfg = Release|x64
+		{6D9FA3DC-01CF-4813-A4E3-9E2AB327DE70}.Release|x64.Build.0 = Release|x64
+		{C58D2408-837E-414C-AC0F-77C17500016C}.Debug|x64.ActiveCfg = Debug|x64
+		{C58D2408-837E-414C-AC0F-77C17500016C}.Debug|x64.Build.0 = Debug|x64
+		{C58D2408-837E-414C-AC0F-77C17500016C}.Release|x64.ActiveCfg = Release|x64
+		{C58D2408-837E-414C-AC0F-77C17500016C}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{1551D603-5ACA-4728-926E-C132035EBA98} = {57ED8985-569E-40F3-9939-DBA3EE668AF0}
+		{6D9FA3DC-01CF-4813-A4E3-9E2AB327DE70} = {57ED8985-569E-40F3-9939-DBA3EE668AF0}
+		{C58D2408-837E-414C-AC0F-77C17500016C} = {358DE74E-09DB-4DD2-92EF-F94B761167CF}
+	EndGlobalSection
+EndGlobal

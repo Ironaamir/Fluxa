@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>Fluxa.App</RootNamespace>
+    <AssemblyName>Fluxa</AssemblyName>
+    <AssemblyTitle>Fluxa</AssemblyTitle>
+    <Product>Fluxa</Product>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <ProjectReference Include="..\Fluxa.Core\Fluxa.Core.csproj" />
+    <Content Include="Assets\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- Unpackaged CLI publishing must include compiled XAML and the application's PRI. -->
+  <Target Name="PublishWinUIResources" AfterTargets="Publish">
+    <ItemGroup>
+      <WinUIResource Include="$(TargetDir)**\*.xbf;$(TargetDir)$(AssemblyName).pri" />
+    </ItemGroup>
+    <Copy SourceFiles="@(WinUIResource)" DestinationFiles="@(WinUIResource->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+</Project>
