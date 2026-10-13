@@ -28,7 +28,7 @@ Settings remember output folder/format, quality, metadata removal, frame policy,
 
 ### Cloud imports
 
-Google Drive and Dropbox imports were added during this cycle, then **removed in 0.1.1**. Google's desktop OAuth endpoint rejects the secret-less PKCE exchange (`client_secret is missing`), and the only working alternative embeds the generated client secret in the distributed executable, where anyone can extract it. That value would be effectively public, so cloud imports were cut rather than shipped. See [CHANGELOG.md](CHANGELOG.md).
+Google Drive and Dropbox imports were added for 0.1.1, then **removed before release**. Google's desktop OAuth endpoint rejects the secret-less PKCE exchange (`client_secret is missing`), and the only working alternative embeds the generated client secret in the distributed executable, where anyone can extract it. That value would be effectively public, so cloud imports were cut rather than shipped. See [CHANGELOG.md](CHANGELOG.md).
 
 If you linked an account while testing a development build, revoke Fluxa's access under [Google account permissions](https://myaccount.google.com/permissions) and [Dropbox connected apps](https://www.dropbox.com/account/connected_apps). Every conversion feature works entirely on local files.
 
@@ -117,7 +117,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-Explorer.ps1
 
 The desktop test uses real Windows UI Automation, file/folder dialogs, and conversion controls. The appearance test checks all twelve palette/theme combinations using screen pixels, collapsible groups, compression destinations, Cancel behavior, pointer hover, and failed-file retry. The tray test simulates Shell's callback, then physically clicks the actual native menu; it does not automate Explorer's icon surface. Actual drag/drop testing uses the isolated WinForms OLE source helper: start `scripts/Start-DragSource.ps1` in a separate PowerShell process, then run `scripts/Test-Drop.ps1` with the app visible in Images mode and an empty queue. Avoid typing or moving the mouse during desktop tests.
 
-See [CHANGELOG.md](CHANGELOG.md) for what changed between versions and [AGENT-HANDOFF.md](AGENT-HANDOFF.md) for agent-level verification details and remaining limitations.
+See [CHANGELOG.md](CHANGELOG.md) for what changed between versions, including the current known
+limitations.
 
 ## Architecture
 
