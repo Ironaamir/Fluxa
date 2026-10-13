@@ -97,7 +97,7 @@ public sealed partial class MainWindow : Window
                 else Notify("Conversion is still running", "Cancel the batch before closing. The tray icon is unavailable, so the window will stay visible.", InfoBarSeverity.Warning);
             }
         };
-        Closed += (_, _) => { _conversion?.Cancel(); _tray?.Dispose(); CleanupCloud(); };
+        Closed += (_, _) => { _conversion?.Cancel(); _tray?.Dispose(); };
         _ready = true;
         SwitchMode(ConversionMode.Images);
         UpdateQuality();
@@ -297,17 +297,6 @@ public sealed partial class MainWindow : Window
             finally { deferral.Complete(); }
         };
         _imagePanel.Children.Add(drop);
-        var sources = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        sources.Children.Add(Text("IMPORT FROM", 11, "Muted"));
-        foreach (var provider in CloudSources.Providers)
-        {
-            var button = ActionButton(provider.Name, () => ShowCloudAsync(provider.Kind));
-            Name(button, "Import from " + provider.Name);
-            ToolTipService.SetToolTip(button, provider.Status);
-            _busyDisabled.Add(button);
-            sources.Children.Add(button);
-        }
-        _imagePanel.Children.Add(sources);
         var options = new Grid { ColumnSpacing = 24, RowSpacing = 18 };
         options.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         options.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
@@ -577,7 +566,7 @@ public sealed partial class MainWindow : Window
     private bool _settingsDialog;
     private async Task ShowSettingsAsync()
     {
-        if (_settingsDialog || _cloudDialog) return;
+        if (_settingsDialog) return;
         _settingsDialog = true;
         try { await ShowSettingsCoreAsync(); }
         catch (Exception ex) { Notify("Settings unavailable", ex.Message, InfoBarSeverity.Error); }
@@ -621,16 +610,6 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(Text("Supported local inputs", 16));
         panel.Children.Add(Text(string.Join(", ", ImageConversionEngine.InputExtensions.Order()), 13, "Muted"));
         panel.Children.Add(Text("Limits: 512 MB per input, 500 queued files, 256 frames, 32,768 pixels per dimension. Processing uses a bounded pixel cache. Cancellation takes effect between native codec steps.", 13, "Muted"));
-        panel.Children.Add(Text("Cloud connections", 18));
-        var googleId = new TextBox { Text = _settings.GoogleDriveClientId, PlaceholderText = "Desktop OAuth client ID" };
-        var dropboxKey = new TextBox { Text = _settings.DropboxAppKey, PlaceholderText = "Dropbox app key" };
-        Name(googleId, "Google Drive OAuth client ID"); Name(dropboxKey, "Dropbox app key");
-        panel.Children.Add(Field("GOOGLE DRIVE CLIENT ID", googleId));
-        panel.Children.Add(Field("DROPBOX APP KEY", dropboxKey));
-        panel.Children.Add(Text("App identifiers are public, not passwords. Enable Google Drive API and create a Desktop OAuth client with drive.readonly permission. For Dropbox, create a Full Dropbox scoped app with files.metadata.read and files.content.read. Register this exact Dropbox redirect:", 13, "Muted"));
-        var redirect = new TextBox { Text = CloudOAuth.DropboxRedirect, IsReadOnly = true };
-        Name(redirect, "Dropbox OAuth redirect URI"); panel.Children.Add(redirect);
-        panel.Children.Add(Text("Save, then use the import buttons to connect in your browser. Fluxa never uploads files. Saved tokens are encrypted for your Windows user. Changing an app identifier disconnects its local session; use Disconnect in the import browser to revoke access first.", 13, "Muted"));
         var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, RequestedTheme = Root.RequestedTheme, Title = "Settings & supported formats", Content = new ScrollViewer { Content = panel, MaxHeight = 480 }, PrimaryButtonText = "Save", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
         if (await dialog.ShowAsync() == ContentDialogResult.Primary)
         {
@@ -640,10 +619,6 @@ public sealed partial class MainWindow : Window
             { Notify("Explorer commands not saved", ex.Message, InfoBarSeverity.Error); return; }
             _settings.ContextMenuEnabled = contextMenu.IsOn;
             _settings.ContextMenuExtension = contextExtension;
-            if (_settings.GoogleDriveClientId != googleId.Text.Trim()) { _cloudTokens.Delete(FileSourceKind.GoogleDrive); _cloudProviders.Remove(FileSourceKind.GoogleDrive); }
-            if (_settings.DropboxAppKey != dropboxKey.Text.Trim()) { _cloudTokens.Delete(FileSourceKind.Dropbox); _cloudProviders.Remove(FileSourceKind.Dropbox); }
-            _settings.GoogleDriveClientId = googleId.Text.Trim();
-            _settings.DropboxAppKey = dropboxKey.Text.Trim();
             _settings.CloseToTray = closeToTray.IsOn;
             _settings.LightMode = appearance.SelectedIndex == 1;
             _settings.AccentColor = (colorPicker.SelectedItem as GridViewItem)?.Tag as string ?? "Blue";
@@ -669,7 +644,7 @@ public sealed partial class MainWindow : Window
             {
                 // Never add to a batch while it is being enumerated; later Explorer
                 // requests wait, without cancelling or accidentally converting manual imports.
-                while ((_conversion != null || _cloudDialog || _settingsDialog) && !_exiting) await Task.Delay(100);
+                while ((_conversion != null || _settingsDialog) && !_exiting) await Task.Delay(100);
                 if (_exiting) return;
                 AddFiles(request.Files);
                 if (request.ConvertImmediately)

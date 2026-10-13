@@ -13,7 +13,6 @@
     <Compile Include="..\..\src\Fluxa.App\ThemePalette.cs" Link="App\ThemePalette.cs" />
     <Compile Include="..\..\src\Fluxa.App\AppSettings.cs" Link="App\AppSettings.cs" />
     <Compile Include="..\..\src\Fluxa.App\LaunchRequest.cs" Link="App\LaunchRequest.cs" />
-    <Compile Include="..\..\src\Fluxa.App\WindowsCloudTokenStore.cs" Link="App\WindowsCloudTokenStore.cs" />
     <Compile Include="..\..\src\Fluxa.App\ExplorerIntegration.cs" Link="App\ExplorerIntegration.cs" />
   </ItemGroup>
 </Project>

@@ -183,28 +183,5 @@ public sealed class ConversionTests : IDisposable
         Assert.All(results, r => Assert.True(File.Exists(r.Output)));
     }
 
-    [Fact]
-    public async Task CloudProvidersRequireAnActualConfiguredConnection()
-    {
-        Assert.Equal(2, CloudSources.Providers.Count);
-        foreach (var info in CloudSources.Providers)
-        {
-            using var http = new HttpClient();
-            var provider = new CloudFileSource(new(info.Kind, "", CloudOAuth.DropboxRedirect), new EmptyTokens(), http);
-            Assert.False(provider.IsConnected);
-            Assert.False(provider.Info.IsAvailable);
-            await Assert.ThrowsAsync<InvalidOperationException>(() => provider.ConnectAsync(default));
-            await Assert.ThrowsAsync<InvalidOperationException>(() => provider.ListFilesAsync(null, null, default));
-            await Assert.ThrowsAsync<InvalidOperationException>(() => provider.DownloadAsync("id", new MemoryStream(), default));
-        }
-    }
-
-    private sealed class EmptyTokens : ICloudTokenStore
-    {
-        public CloudToken? Load(FileSourceKind kind) => null;
-        public void Save(FileSourceKind kind, CloudToken token) { }
-        public void Delete(FileSourceKind kind) { }
-    }
-
     public void Dispose() => Directory.Delete(_folder, true);
 }

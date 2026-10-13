@@ -11,8 +11,6 @@ internal sealed class AppSettings
     public bool StripMetadata { get; set; } = true;
     public FramePolicy Frames { get; set; } = FramePolicy.Preserve;
     public bool CloseToTray { get; set; }
-    public string GoogleDriveClientId { get; set; } = "";
-    public string DropboxAppKey { get; set; } = "";
     public bool ContextMenuEnabled { get; set; } = true;
     public string ContextMenuExtension { get; set; } = "png";
     public string AccentColor { get; set; } = "Blue";
