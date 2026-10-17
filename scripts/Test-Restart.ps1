@@ -39,7 +39,7 @@ try {
 } finally {$g.Dispose();$b.Dispose()}
 Screenshot 'fluxa-light'
 Click (Find 'Video mode')
-Find 'Video conversion is on the way' | Out-Null
+Find 'Convert video' | Out-Null
 Invoke 'Images mode'
 'PASS: palette, light mode, and both collapsed groups survive restart; physical navigation and light hover work'
 Invoke 'Settings'

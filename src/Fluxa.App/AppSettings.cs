@@ -10,6 +10,12 @@ internal sealed class AppSettings
     public int Quality { get; set; } = 90;
     public bool StripMetadata { get; set; } = true;
     public FramePolicy Frames { get; set; } = FramePolicy.Preserve;
+    public string VideoOutputFolder { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Converted");
+    public string VideoOutputExtension { get; set; } = "mp4";
+    public VideoQuality VideoQuality { get; set; } = VideoQuality.Balanced;
+    public bool VideoIncludeAudio { get; set; } = true;
+    public bool VideoStripMetadata { get; set; } = true;
+    public string? FfmpegPath { get; set; }
     public bool CloseToTray { get; set; }
     public bool ContextMenuEnabled { get; set; } = true;
     public string ContextMenuExtension { get; set; } = "png";
@@ -34,6 +40,10 @@ internal sealed class AppSettings
             settings.Quality = Math.Clamp(settings.Quality, 1, 100);
             if (string.IsNullOrWhiteSpace(settings.OutputFolder)) settings.OutputFolder = new AppSettings().OutputFolder;
             if (!Enum.IsDefined(settings.Frames)) settings.Frames = FramePolicy.Preserve;
+            if (string.IsNullOrWhiteSpace(settings.VideoOutputFolder)) settings.VideoOutputFolder = new AppSettings().VideoOutputFolder;
+            if (!VideoConversionEngine.OutputFormats.Any(f => f.Extension == settings.VideoOutputExtension)) settings.VideoOutputExtension = "mp4";
+            if (!Enum.IsDefined(settings.VideoQuality)) settings.VideoQuality = VideoQuality.Balanced;
+            if (!string.IsNullOrWhiteSpace(settings.FfmpegPath) && !File.Exists(settings.FfmpegPath)) settings.FfmpegPath = null;
             settings.AccentColor = ThemePalette.Find(settings.AccentColor).Name;
             if (!ImageConversionEngine.OutputFormats.Any(f => f.Extension == settings.ContextMenuExtension)) settings.ContextMenuExtension = "png";
             return settings;

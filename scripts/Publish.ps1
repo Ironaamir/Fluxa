@@ -42,11 +42,7 @@ Fluxa $version - portable Windows x64 preview
 
 Extract the entire ZIP before launching. Run dist\Fluxa.exe, or right-click Start.ps1 and choose Run with PowerShell. Keep the entire dist folder together. Windows 10 build 19041 or newer is required (tested on Windows 11 x64).
 
-No SDK or administrator rights are needed. Files are converted locally. User preferences are created only on the user's own device, outside this folder. No tests, source code, personal settings, account access, debug symbols or development logs are included.
-
-Cloud imports are not included in this release. Fluxa converts local images only. If a previous version asked you to link a Google or Dropbox account, use that provider's own account-security page to revoke any access you granted.
-
-This is a local preview, not a published GitHub release. No uploads are performed by the packaging script.
+No SDK or administrator rights are needed. Files are converted locally. For video conversion, install FFmpeg (e.g. 'winget install Gyan.FFmpeg') or place ffmpeg.exe in the dist folder. User preferences are saved locally on your device.
 "@ | Set-Content (Join-Path $bundle 'READ-ME.txt') -Encoding UTF8
 $dist = Join-Path $root 'dist'
 if (Test-Path $dist) { Move-Item $dist (Join-Path $artifacts ('previous-dist-' + [guid]::NewGuid().ToString('N'))) }

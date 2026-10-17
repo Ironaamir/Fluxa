@@ -69,7 +69,7 @@ public sealed class ImageConversionEngine : IConversionEngine
         ArgumentNullException.ThrowIfNull(options);
         source = Path.GetFullPath(source);
         if (!Catalog.Value.Inputs.TryGetValue(Path.GetExtension(source), out var codec))
-            throw new NotSupportedException("This input is not a supported raster image. Video, audio, PDF, and SVG conversion are not available yet.");
+            throw new NotSupportedException("This input is not a supported raster image.");
         if (!OutputFormats.Contains(options.Format)) throw new NotSupportedException("That output format is unavailable in this codec build.");
         if (options.Quality is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(options), "Quality must be 1–100.");
         if (string.IsNullOrWhiteSpace(options.OutputFolder)) throw new ArgumentException("Choose an output folder.", nameof(options));

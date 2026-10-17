@@ -19,25 +19,30 @@ public sealed partial class MainWindow : Window
 {
     private readonly AppSettings _settings;
     private readonly ImageConversionEngine _engine = new();
-    private readonly FileQueue<QueueItem> _files = new(item => item.Path, item => item.Complete);
-    private List<QueueItem> _queue => _files.Items;
+    private readonly VideoConversionEngine _videoEngine = new();
+    private readonly FileQueue<QueueItem> _imageFiles = new(item => item.Path, item => item.Complete);
+    private readonly FileQueue<QueueItem> _videoFiles = new(item => item.Path, item => item.Complete);
+    private FileQueue<QueueItem> ActiveFiles => _currentMode == ConversionMode.Video ? _videoFiles : _imageFiles;
+    private List<QueueItem> _queue => ActiveFiles.Items;
     private static readonly Dictionary<string, SolidColorBrush> ThemeBrushes = [];
     private readonly Dictionary<(ConversionMode Mode, bool Compression), Button> _modeButtons = [];
     private ConversionMode _currentMode = ConversionMode.Images;
     private bool _compression;
+    private readonly StackPanel _queueSection = new() { Spacing = 12 };
     private readonly StackPanel _completedPanel = new() { Spacing = 8 };
     private readonly StackPanel _completedSection = new() { Spacing = 12 };
     private readonly TextBlock _completedCount = Text("FINISHED · 0", 12, "Muted");
     private readonly TextBlock _emptyCompleted = Text("Converted files will appear here.", 14, "Muted");
     private readonly StackPanel _queuePanel = new() { Spacing = 8 };
     private readonly StackPanel _imagePanel = new() { Spacing = 16 };
+    private readonly StackPanel _videoPanel = new() { Spacing = 16 };
     private readonly StackPanel _futurePanel = new() { Spacing = 20 };
     private readonly StackPanel _actionPanel = new() { Spacing = 10, Margin = new Thickness(32, 10, 32, 20) };
     private readonly TextBlock _subtitle = Text("Image conversion", 15, "Muted");
     private readonly TextBlock _heading = Text("Convert images", 34);
     private readonly TextBlock _queueCount = Text("QUEUE · 0", 12, "Muted");
     private readonly TextBlock _emptyQueue = Text("No files yet. Add images above to get started.", 14, "Muted");
-    private readonly TextBlock _futureTitle = Text("Video conversion is on the way", 28);
+    private readonly TextBlock _futureTitle = Text("Audio conversion is on the way", 28);
     private readonly TextBlock _futureDescription = Text("", 15, "Muted");
     private readonly ComboBox _format = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ComboBox _frames = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -45,6 +50,12 @@ public sealed partial class MainWindow : Window
     private readonly TextBlock _qualityValue = Text("90%", 14, "AccentText");
     private readonly CheckBox _strip = new() { Content = "Remove metadata (EXIF, location, profiles)", IsChecked = true };
     private readonly TextBox _output = new() { IsReadOnly = true, HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly ComboBox _videoFormat = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly ComboBox _videoQuality = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly CheckBox _videoAudio = new() { Content = "Include audio track", IsChecked = true };
+    private readonly CheckBox _videoStrip = new() { Content = "Remove container metadata", IsChecked = true };
+    private readonly TextBox _videoOutput = new() { IsReadOnly = true, HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly Border _ffmpegNotice = new() { Visibility = Visibility.Collapsed };
     private readonly Button _convert = new() { Content = "Convert images", MinWidth = 170 };
     private readonly Button _cancel = new() { Content = "Cancel remaining", Visibility = Visibility.Collapsed };
     private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 100, Visibility = Visibility.Collapsed };
@@ -63,6 +74,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         Title = "Fluxa";
         _settings = AppSettings.Load(out var warning);
+        _videoEngine.FfmpegOverride = _settings.FfmpegPath;
         _hwnd = WindowNative.GetWindowHandle(this);
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 850));
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
@@ -77,14 +89,43 @@ public sealed partial class MainWindow : Window
         _quality.Value = _settings.Quality;
         _strip.IsChecked = _settings.StripMetadata;
         _output.Text = _settings.OutputFolder;
+
+        _videoFormat.ItemsSource = VideoConversionEngine.OutputFormats;
+        _videoFormat.SelectedItem = VideoConversionEngine.OutputFormats.FirstOrDefault(f => f.Extension == _settings.VideoOutputExtension)
+            ?? VideoConversionEngine.OutputFormats[0];
+        _videoQuality.Items.Add("High quality (larger file)");
+        _videoQuality.Items.Add("Balanced (recommended)");
+        _videoQuality.Items.Add("Compact (smaller file)");
+        _videoQuality.SelectedIndex = _settings.VideoQuality switch
+        {
+            VideoQuality.High => 0,
+            VideoQuality.Compact => 2,
+            _ => 1
+        };
+        _videoAudio.IsChecked = _settings.VideoIncludeAudio;
+        _videoStrip.IsChecked = _settings.VideoStripMetadata;
+        _videoOutput.Text = _settings.VideoOutputFolder;
+
         _format.SelectionChanged += (_, _) => { UpdateQuality(); SavePreferences(); };
         _frames.SelectionChanged += (_, _) => SavePreferences();
         _quality.ValueChanged += (_, _) => { _qualityValue.Text = $"{(int)_quality.Value}%"; SavePreferences(); };
         _strip.Checked += (_, _) => SavePreferences();
         _strip.Unchecked += (_, _) => SavePreferences();
+
+        _videoFormat.SelectionChanged += (_, _) => { UpdateVideoOptions(); SavePreferences(); };
+        _videoQuality.SelectionChanged += (_, _) => SavePreferences();
+        _videoAudio.Checked += (_, _) => SavePreferences();
+        _videoAudio.Unchecked += (_, _) => SavePreferences();
+        _videoStrip.Checked += (_, _) => SavePreferences();
+        _videoStrip.Unchecked += (_, _) => SavePreferences();
+
         _convert.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
-        _convert.Click += async (_, _) => await ConvertQueueAsync();
-        _cancel.Click += (_, _) => { _conversion?.Cancel(); _cancel.IsEnabled = false; _cancel.Content = "Stopping after current codec step…"; };
+        _convert.Click += async (_, _) =>
+        {
+            if (_currentMode == ConversionMode.Video) await ConvertVideoQueueAsync();
+            else await ConvertQueueAsync();
+        };
+        _cancel.Click += (_, _) => { _conversion?.Cancel(); _cancel.IsEnabled = false; _cancel.Content = "Stopping…"; };
         try { _tray = new TrayIcon(_hwnd, Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"), OpenFromTray, Exit); }
         catch (Exception ex) { Notify("Tray icon unavailable", ex.Message, InfoBarSeverity.Warning); }
         AppWindow.Closing += (_, args) =>
@@ -101,6 +142,7 @@ public sealed partial class MainWindow : Window
         _ready = true;
         SwitchMode(ConversionMode.Images);
         UpdateQuality();
+        UpdateVideoOptions();
         UpdateQueue();
         if (warning != null) Notify("Preferences", warning, InfoBarSeverity.Warning);
         try { ExplorerIntegration.Apply(_settings.ContextMenuEnabled, _settings.ContextMenuExtension); }
@@ -187,8 +229,12 @@ public sealed partial class MainWindow : Window
         header.Children.Add(_subtitle);
         content.Children.Add(header);
         content.Children.Add(_notice);
+        BuildQueueAndActionPanels();
         BuildImagePanel();
+        BuildVideoPanel();
+        content.Children.Add(_queueSection);
         content.Children.Add(_imagePanel);
+        content.Children.Add(_videoPanel);
         content.Children.Add(_completedSection);
         var coming = new StackPanel { Spacing = 16, Margin = new Thickness(8, 24, 8, 24) };
         coming.Children.Add(Text("COMING LATER", 12, "AccentText"));
@@ -257,14 +303,58 @@ public sealed partial class MainWindow : Window
             row.Children.Add(Text(label, 15));
             var button = new Button { Content = row, Foreground = Brush("Text"), Style = (Style)Application.Current.Resources["SidebarButtonStyle"] };
             ConfigureSidebarButton(button);
+            var isImplemented = !compression && mode is ConversionMode.Images or ConversionMode.Video;
             Name(button, compression ? label + " compression mode" : (mode == ConversionMode.Images ? "Images" : label) + " mode");
-            ToolTipService.SetToolTip(button, label + (compression ? " compression · coming later" : mode == ConversionMode.Images ? " conversion" : " conversion · coming later"));
+            ToolTipService.SetToolTip(button, label + (compression ? " compression · coming later" : isImplemented ? " conversion" : " conversion · coming later"));
             button.Click += (_, _) => SwitchMode(mode, compression);
             _modeButtons[(mode, compression)] = button;
+            _busyDisabled.Add(button);
             items.Children.Add(button);
         }
         group.Children.Add(items);
         return group;
+    }
+
+    private void BuildQueueAndActionPanels()
+    {
+        var queueHeader = new Grid();
+        queueHeader.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        queueHeader.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        _queueCount.VerticalAlignment = VerticalAlignment.Center;
+        queueHeader.Children.Add(_queueCount);
+        var clear = ActionButton("Clear queue", () => { _queue.RemoveAll(item => !item.Complete); UpdateQueue(); return Task.CompletedTask; });
+        Name(clear, "Clear queue");
+        _busyDisabled.Add(clear);
+        Grid.SetColumn(clear, 1);
+        queueHeader.Children.Add(clear);
+        _queueSection.Children.Add(queueHeader);
+        _queueSection.Children.Add(_emptyQueue);
+        _queueSection.Children.Add(new ScrollViewer { Content = _queuePanel, MaxHeight = 290, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+
+        var completedHeader = new Grid();
+        completedHeader.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        completedHeader.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        _completedCount.VerticalAlignment = VerticalAlignment.Center;
+        completedHeader.Children.Add(_completedCount);
+        var clearFinished = ActionButton("Clear finished", () => { _queue.RemoveAll(item => item.Complete); UpdateQueue(); return Task.CompletedTask; });
+        _busyDisabled.Add(clearFinished);
+        Grid.SetColumn(clearFinished, 1);
+        completedHeader.Children.Add(clearFinished);
+        _completedSection.Children.Add(completedHeader);
+        _completedSection.Children.Add(_emptyCompleted);
+        _completedSection.Children.Add(new ScrollViewer { Content = _completedPanel, MaxHeight = 290, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        Name(_queuePanel, "Pending files");
+        Name(_completedPanel, "Finished files");
+
+        _actionPanel.Children.Add(_progress);
+        var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        _convert.Background = Brush("Accent");
+        _convert.Foreground = Brush("AccentInk");
+        _convert.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        footer.Children.Add(_convert);
+        footer.Children.Add(_cancel);
+        footer.Children.Add(ActionButton("Open output folder", OpenOutputAsync));
+        _actionPanel.Children.Add(footer);
     }
 
     private void BuildImagePanel()
@@ -335,45 +425,116 @@ public sealed partial class MainWindow : Window
         optionStack.Children.Add(Field("SAVE TO", folderRow));
         optionStack.Children.Add(Text("Originals are never overwritten. Duplicate names get a numbered suffix. JPEG uses a white background; icons fit within 256 × 256.", 12, "Muted"));
         _imagePanel.Children.Add(Card(optionStack));
-        var queueSection = new StackPanel { Spacing = 12 };
-        var queueHeader = new Grid();
-        queueHeader.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        queueHeader.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        _queueCount.VerticalAlignment = VerticalAlignment.Center;
-        queueHeader.Children.Add(_queueCount);
-        var clear = ActionButton("Clear queue", () => { _queue.RemoveAll(item => !item.Complete); UpdateQueue(); return Task.CompletedTask; });
-        Name(clear, "Clear queue");
-        _busyDisabled.Add(clear);
-        Grid.SetColumn(clear, 1);
-        queueHeader.Children.Add(clear);
-        queueSection.Children.Add(queueHeader);
-        queueSection.Children.Add(_emptyQueue);
-        queueSection.Children.Add(new ScrollViewer { Content = _queuePanel, MaxHeight = 290, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
-        // Pending files are always the first part of the image workspace.
-        _imagePanel.Children.Insert(0, queueSection);
-        var completedHeader = new Grid();
-        completedHeader.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        completedHeader.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        _completedCount.VerticalAlignment = VerticalAlignment.Center;
-        completedHeader.Children.Add(_completedCount);
-        var clearFinished = ActionButton("Clear finished", () => { _queue.RemoveAll(item => item.Complete); UpdateQueue(); return Task.CompletedTask; });
-        _busyDisabled.Add(clearFinished);
-        Grid.SetColumn(clearFinished, 1);
-        completedHeader.Children.Add(clearFinished);
-        _completedSection.Children.Add(completedHeader);
-        _completedSection.Children.Add(_emptyCompleted);
-        _completedSection.Children.Add(new ScrollViewer { Content = _completedPanel, MaxHeight = 290, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
-        Name(_queuePanel, "Pending files");
-        Name(_completedPanel, "Finished files");
-        _actionPanel.Children.Add(_progress);
-        var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-        _convert.Background = Brush("Accent");
-        _convert.Foreground = Brush("AccentInk");
-        _convert.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
-        footer.Children.Add(_convert);
-        footer.Children.Add(_cancel);
-        footer.Children.Add(ActionButton("Open output folder", OpenOutputAsync));
-        _actionPanel.Children.Add(footer);
+    }
+
+    private void BuildVideoPanel()
+    {
+        var ffmpegStack = new StackPanel { Spacing = 10 };
+        var ffmpegHeader = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        ffmpegHeader.Children.Add(new FontIcon { Glyph = "\uE7BA", FontSize = 18, Foreground = Brush("Warning") });
+        ffmpegHeader.Children.Add(Text("FFmpeg was not detected", 16));
+        ffmpegStack.Children.Add(ffmpegHeader);
+        ffmpegStack.Children.Add(Text("Video conversion requires ffmpeg.exe. You can install it with WinGet (winget install Gyan.FFmpeg) or download a build from ffmpeg.org.", 13, "Muted"));
+        ffmpegStack.Children.Add(Text("Already installed? Click 'Locate ffmpeg.exe' to select it directly, place ffmpeg.exe inside Fluxa's app folder, or add its bin folder to your Windows PATH (System Properties → Environment Variables → Path).", 13, "Muted"));
+        var ffmpegActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var downloadBtn = ActionButton("Download FFmpeg", () =>
+        {
+            try { Process.Start(new ProcessStartInfo("https://ffmpeg.org/download.html") { UseShellExecute = true }); }
+            catch (Exception ex) { Notify("Could not open browser", ex.Message, InfoBarSeverity.Error); }
+            return Task.CompletedTask;
+        });
+        Name(downloadBtn, "Download FFmpeg");
+        var locateBtn = ActionButton("Locate ffmpeg.exe", LocateFfmpegAsync);
+        Name(locateBtn, "Locate ffmpeg.exe");
+        var checkBtn = ActionButton("Check again", () =>
+        {
+            UpdateFfmpegBanner();
+            if (_videoEngine.ResolveFfmpegPath() is { } found)
+                Notify("FFmpeg detected", $"Using {found}", InfoBarSeverity.Success);
+            else
+                Notify("FFmpeg still not found", "Install FFmpeg, add its bin folder to PATH, or use 'Locate ffmpeg.exe'.", InfoBarSeverity.Warning);
+            return Task.CompletedTask;
+        });
+        Name(checkBtn, "Check FFmpeg again");
+        _busyDisabled.AddRange([downloadBtn, locateBtn, checkBtn]);
+        ffmpegActions.Children.Add(downloadBtn);
+        ffmpegActions.Children.Add(locateBtn);
+        ffmpegActions.Children.Add(checkBtn);
+        ffmpegStack.Children.Add(ffmpegActions);
+        _ffmpegNotice.Background = Brush("Surface");
+        _ffmpegNotice.CornerRadius = new CornerRadius(12);
+        _ffmpegNotice.Padding = new Thickness(20);
+        _ffmpegNotice.BorderBrush = Brush("Warning");
+        _ffmpegNotice.BorderThickness = new Thickness(1);
+        _ffmpegNotice.Child = ffmpegStack;
+        Name(_ffmpegNotice, "FFmpeg missing prompt");
+        _videoPanel.Children.Add(_ffmpegNotice);
+
+        var dropContent = new StackPanel { Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center };
+        dropContent.Children.Add(new FontIcon { Glyph = "\uE714", FontSize = 26, Foreground = Brush("AccentText") });
+        dropContent.Children.Add(Text("Drop your videos here", 22));
+        dropContent.Children.Add(Text("Or browse local files. MP4, MKV, MOV, WebM, AVI, and more.", 13, "Muted"));
+        var browse = ActionButton("Browse videos", BrowseVideosAsync);
+        browse.HorizontalAlignment = HorizontalAlignment.Center;
+        dropContent.Children.Add(browse);
+        _busyDisabled.Add(browse);
+        var drop = Card(dropContent);
+        drop.Padding = new Thickness(20);
+        drop.BorderBrush = Brush("Accent");
+        drop.AllowDrop = true;
+        Name(drop, "Video drop zone");
+        drop.DragOver += (_, args) =>
+        {
+            args.AcceptedOperation = _conversion == null && args.DataView.Contains(StandardDataFormats.StorageItems) ? DataPackageOperation.Copy : DataPackageOperation.None;
+            args.DragUIOverride.Caption = "Add videos to the queue";
+            args.DragUIOverride.IsCaptionVisible = true;
+        };
+        drop.Drop += async (_, args) =>
+        {
+            if (_conversion != null || !args.DataView.Contains(StandardDataFormats.StorageItems)) return;
+            var deferral = args.GetDeferral();
+            try { AddVideoFiles((await args.DataView.GetStorageItemsAsync()).OfType<StorageFile>().Select(f => f.Path)); }
+            catch (Exception ex) { Notify("Could not add dropped files", ex.Message, InfoBarSeverity.Error); }
+            finally { deferral.Complete(); }
+        };
+        _videoPanel.Children.Add(drop);
+        var options = new Grid { ColumnSpacing = 24, RowSpacing = 18 };
+        options.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        options.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        options.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        options.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        var formats = Field("CONVERT TO", _videoFormat);
+        Name(_videoFormat, "Video output format");
+        options.Children.Add(formats);
+        var qualityField = Field("QUALITY PRESET", _videoQuality);
+        Name(_videoQuality, "Video quality");
+        Grid.SetColumn(qualityField, 1);
+        options.Children.Add(qualityField);
+        _videoAudio.VerticalAlignment = VerticalAlignment.Center;
+        Name(_videoAudio, "Include audio track");
+        Grid.SetRow(_videoAudio, 1);
+        options.Children.Add(_videoAudio);
+        _videoStrip.VerticalAlignment = VerticalAlignment.Center;
+        Name(_videoStrip, "Remove video metadata");
+        Grid.SetRow(_videoStrip, 1);
+        Grid.SetColumn(_videoStrip, 1);
+        options.Children.Add(_videoStrip);
+        _busyDisabled.AddRange([_videoFormat, _videoQuality, _videoStrip]);
+        var optionStack = new StackPanel { Spacing = 18 };
+        optionStack.Children.Add(options);
+        var folderRow = new Grid { ColumnSpacing = 12 };
+        folderRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        folderRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        Name(_videoOutput, "Video output folder");
+        folderRow.Children.Add(_videoOutput);
+        var chooseFolder = ActionButton("Choose folder", ChooseVideoFolderAsync);
+        Name(chooseFolder, "Choose video folder");
+        Grid.SetColumn(chooseFolder, 1);
+        folderRow.Children.Add(chooseFolder);
+        _busyDisabled.Add(chooseFolder);
+        optionStack.Children.Add(Field("SAVE TO", folderRow));
+        optionStack.Children.Add(Text("Originals are never overwritten. Duplicate names get a numbered suffix. Powered by local FFmpeg.", 12, "Muted"));
+        _videoPanel.Children.Add(Card(optionStack));
     }
 
     private void SwitchMode(ConversionMode mode, bool compression = false)
@@ -381,18 +542,23 @@ public sealed partial class MainWindow : Window
         _currentMode = mode;
         _compression = compression;
         var label = mode == ConversionMode.Pdf ? "PDF" : mode.ToString();
-        var available = mode == ConversionMode.Images && !compression;
+        var available = !compression && mode is ConversionMode.Images or ConversionMode.Video;
         var operation = compression ? "compression" : "conversion";
         _heading.Text = (compression ? "Compress " : "Convert ") + label.ToLowerInvariant();
         _subtitle.Text = label + " " + operation + " · " + (available ? "Local files, ready to go." : "Coming later.");
-        _imagePanel.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
-        _completedSection.Visibility = _imagePanel.Visibility;
-        _actionPanel.Visibility = _imagePanel.Visibility;
+        _queueSection.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        _imagePanel.Visibility = !compression && mode == ConversionMode.Images ? Visibility.Visible : Visibility.Collapsed;
+        _videoPanel.Visibility = !compression && mode == ConversionMode.Video ? Visibility.Visible : Visibility.Collapsed;
+        _completedSection.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        _actionPanel.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
         _futurePanel.Visibility = available ? Visibility.Collapsed : Visibility.Visible;
+        _emptyQueue.Text = mode == ConversionMode.Video
+            ? "No files yet. Add videos above to get started."
+            : "No files yet. Add images above to get started.";
+        _convert.Content = mode == ConversionMode.Video ? "Convert videos" : "Convert images";
         _futureTitle.Text = label + " " + operation + " is on the way";
         _futureDescription.Text = compression ? "Compression presets, file-size targets, and before/after comparisons will live here. Compression is not implemented yet." : mode switch
         {
-            ConversionMode.Video => "A dedicated workspace for video formats, codecs, and export presets will live here.",
             ConversionMode.Audio => "Audio formats, bitrate controls, and batch exports will live here.",
             _ => "PDF conversion and document tools will live here. No document processing is enabled yet."
         };
@@ -402,6 +568,33 @@ public sealed partial class MainWindow : Window
             button.Background = selected ? Brush("Selected") : new SolidColorBrush(Colors.Transparent);
             AutomationProperties.SetItemStatus(button, selected ? "Current mode" : "");
         }
+        if (!compression && mode == ConversionMode.Video) UpdateFfmpegBanner();
+        UpdateQueue();
+    }
+
+    private void UpdateFfmpegBanner()
+    {
+        var missing = string.IsNullOrWhiteSpace(_videoEngine.ResolveFfmpegPath());
+        _ffmpegNotice.Visibility = missing ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async Task LocateFfmpegAsync()
+    {
+        try
+        {
+            var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.ComputerFolder };
+            InitializeWithWindow.Initialize(picker, _hwnd);
+            picker.FileTypeFilter.Add(".exe");
+            if (await picker.PickSingleFileAsync() is { } file)
+            {
+                _settings.FfmpegPath = file.Path;
+                _videoEngine.FfmpegOverride = file.Path;
+                SavePreferences();
+                UpdateFfmpegBanner();
+                Notify("FFmpeg configured", $"Using {file.Path}", InfoBarSeverity.Success);
+            }
+        }
+        catch (Exception ex) { Notify("Could not select FFmpeg", ex.Message, InfoBarSeverity.Error); }
     }
 
     private async Task BrowseAsync()
@@ -416,15 +609,33 @@ public sealed partial class MainWindow : Window
         catch (Exception ex) { Notify("Could not browse files", ex.Message, InfoBarSeverity.Error); }
     }
 
-    private void AddFiles(IEnumerable<string> files)
+    private async Task BrowseVideosAsync()
+    {
+        try
+        {
+            var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.VideosLibrary };
+            InitializeWithWindow.Initialize(picker, _hwnd);
+            foreach (var extension in VideoConversionEngine.InputExtensions.Order()) picker.FileTypeFilter.Add(extension);
+            AddVideoFiles((await picker.PickMultipleFilesAsync()).Select(file => file.Path));
+        }
+        catch (Exception ex) { Notify("Could not browse video files", ex.Message, InfoBarSeverity.Error); }
+    }
+
+    private void AddFiles(IEnumerable<string> files) => AddFilesToQueue(files, _imageFiles, ImageConversionEngine.IsSupportedInput,
+        "Drop local raster images only.");
+
+    private void AddVideoFiles(IEnumerable<string> files) => AddFilesToQueue(files, _videoFiles, VideoConversionEngine.IsSupportedInput,
+        "Drop supported local video files only.");
+
+    private void AddFilesToQueue(IEnumerable<string> files, FileQueue<QueueItem> targetQueue, Func<string, bool> isSupported, string hint)
     {
         var rejected = 0;
         foreach (var path in files)
         {
-            if (!File.Exists(path) || !ImageConversionEngine.IsSupportedInput(path)) { rejected++; continue; }
-            if (!_files.CanAdd(path))
+            if (!File.Exists(path) || !isSupported(path)) { rejected++; continue; }
+            if (!targetQueue.CanAdd(path))
             {
-                if (_files.PendingCount >= FileQueue<QueueItem>.PendingLimit) rejected++;
+                if (targetQueue.PendingCount >= FileQueue<QueueItem>.PendingLimit) rejected++;
                 continue;
             }
             var item = new QueueItem(path);
@@ -435,7 +646,7 @@ public sealed partial class MainWindow : Window
             details.Children.Add(Text(Path.GetFileName(path), 14));
             details.Children.Add(item.Status);
             row.Children.Add(details);
-            var remove = ActionButton("Remove", () => { _queue.Remove(item); UpdateQueue(); return Task.CompletedTask; });
+            var remove = ActionButton("Remove", () => { targetQueue.Items.Remove(item); UpdateQueue(); return Task.CompletedTask; });
             Name(remove, "Remove " + Path.GetFileName(path));
             item.Remove = remove;
             Grid.SetColumn(remove, 1);
@@ -443,14 +654,15 @@ public sealed partial class MainWindow : Window
             item.Row = Card(row);
             item.Row.Padding = new Thickness(14, 10, 14, 10);
             ToolTipService.SetToolTip(item.Row, path);
-            _queue.Add(item);
+            targetQueue.Items.Add(item);
         }
         UpdateQueue();
-        if (rejected > 0) Notify("Some files were not added", $"Skipped {rejected} unsupported/missing files or files beyond the 500-item queue limit. Drop local raster images only.", InfoBarSeverity.Warning);
+        if (rejected > 0) Notify("Some files were not added", $"Skipped {rejected} unsupported/missing files or files beyond the 500-item queue limit. {hint}", InfoBarSeverity.Warning);
     }
 
     private void UpdateQueue()
     {
+        if (!_ready) return;
         _queuePanel.Children.Clear();
         _completedPanel.Children.Clear();
         foreach (var item in _queue) (item.Complete ? _completedPanel : _queuePanel).Children.Add(item.Row);
@@ -475,12 +687,24 @@ public sealed partial class MainWindow : Window
         catch (Exception ex) { Notify("Could not choose a folder", ex.Message, InfoBarSeverity.Error); }
     }
 
+    private async Task ChooseVideoFolderAsync()
+    {
+        try
+        {
+            var picker = new FolderPicker { SuggestedStartLocation = PickerLocationId.VideosLibrary };
+            picker.FileTypeFilter.Add("*");
+            InitializeWithWindow.Initialize(picker, _hwnd);
+            if (await picker.PickSingleFolderAsync() is { } folder) { _videoOutput.Text = folder.Path; SavePreferences(); }
+        }
+        catch (Exception ex) { Notify("Could not choose a folder", ex.Message, InfoBarSeverity.Error); }
+    }
+
     private async Task ConvertQueueAsync(QueueItem[]? requested = null, ImageFormat? requestedFormat = null)
     {
         if (_conversion != null) return;
         var format = requestedFormat ?? _format.SelectedItem as ImageFormat;
         if (format == null) return;
-        var pending = requested ?? _queue.Where(item => !item.Complete).ToArray();
+        var pending = requested ?? _imageFiles.Items.Where(item => !item.Complete).ToArray();
         if (pending.Length == 0) return;
         var options = new ConversionOptions(format, _output.Text, (uint)_quality.Value, _strip.IsChecked == true,
             _frames.SelectedIndex == 1 ? FramePolicy.FirstFrame : FramePolicy.Preserve);
@@ -531,10 +755,82 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async Task ConvertVideoQueueAsync(QueueItem[]? requested = null, VideoFormat? requestedFormat = null)
+    {
+        if (_conversion != null) return;
+        UpdateFfmpegBanner();
+        if (string.IsNullOrWhiteSpace(_videoEngine.ResolveFfmpegPath()))
+        {
+            Notify("FFmpeg not found", "Install FFmpeg (winget install Gyan.FFmpeg), add its bin folder to PATH, or click 'Locate ffmpeg.exe' above.", InfoBarSeverity.Warning);
+            return;
+        }
+        var format = requestedFormat ?? _videoFormat.SelectedItem as VideoFormat;
+        if (format == null) return;
+        var pending = requested ?? _videoFiles.Items.Where(item => !item.Complete).ToArray();
+        if (pending.Length == 0) return;
+        var quality = _videoQuality.SelectedIndex switch
+        {
+            0 => VideoQuality.High,
+            2 => VideoQuality.Compact,
+            _ => VideoQuality.Balanced
+        };
+        var options = new VideoConversionOptions(format, _videoOutput.Text, quality, _videoAudio.IsChecked == true, _videoStrip.IsChecked == true);
+        using var cancellation = new CancellationTokenSource();
+        _conversion = cancellation;
+        SetBusy(true);
+        _notice.IsOpen = false;
+        var succeeded = 0;
+        var failed = 0;
+        var attempted = 0;
+        try
+        {
+            foreach (var item in pending)
+            {
+                if (cancellation.IsCancellationRequested) break;
+                item.Status.Text = "Converting…";
+                item.Status.Foreground = Brush("AccentText");
+                try
+                {
+                    var result = await _videoEngine.ConvertAsync(item.Path, options, cancellation.Token);
+                    item.Complete = true;
+                    item.Status.Text = $"Saved · {Path.GetFileName(result.Output)} · {FormatBytes(result.Bytes)}";
+                    ToolTipService.SetToolTip(item.Status, result.Output);
+                    succeeded++;
+                    UpdateQueue();
+                }
+                catch (OperationCanceledException)
+                {
+                    item.Status.Text = "Cancelled · ready to retry";
+                    item.Status.Foreground = Brush("Muted");
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    item.Status.Text = "Failed · " + ex.Message;
+                    item.Status.Foreground = Brush("Warning");
+                    ToolTipService.SetToolTip(item.Status, ex.Message);
+                }
+                attempted++;
+                _progress.Value = 100d * attempted / pending.Length;
+            }
+            Notify(cancellation.IsCancellationRequested ? "Conversion stopped" : "Batch complete",
+                $"{succeeded} saved · {failed} failed · {pending.Length - attempted} not processed. Originals are untouched.",
+                failed > 0 || cancellation.IsCancellationRequested ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
+        }
+        finally
+        {
+            _conversion = null;
+            SetBusy(false);
+            UpdateQueue();
+            if (_exiting) Close();
+        }
+    }
+
     private void SetBusy(bool busy)
     {
         foreach (var control in _busyDisabled) control.IsEnabled = !busy;
-        foreach (var item in _queue) item.Remove.IsEnabled = !busy;
+        foreach (var item in _imageFiles.Items.Concat(_videoFiles.Items)) item.Remove.IsEnabled = !busy;
         _convert.IsEnabled = !busy;
         _cancel.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         _cancel.IsEnabled = true;
@@ -542,6 +838,7 @@ public sealed partial class MainWindow : Window
         _progress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         _progress.Value = 0;
         UpdateQuality();
+        UpdateVideoOptions();
     }
 
     private void UpdateQuality()
@@ -549,6 +846,12 @@ public sealed partial class MainWindow : Window
         var lossy = (_format.SelectedItem as ImageFormat)?.Extension is "jpg" or "webp" or "avif" or "jxl" or "jp2";
         _quality.IsEnabled = lossy && _conversion == null;
         _qualityValue.Text = lossy ? $"{(int)_quality.Value}%" : "Not applicable to this format";
+    }
+
+    private void UpdateVideoOptions()
+    {
+        var supportsAudio = (_videoFormat.SelectedItem as VideoFormat)?.SupportsAudio ?? true;
+        _videoAudio.IsEnabled = supportsAudio && _conversion == null;
     }
 
     private void SavePreferences()
@@ -559,6 +862,16 @@ public sealed partial class MainWindow : Window
         _settings.Quality = (int)_quality.Value;
         _settings.StripMetadata = _strip.IsChecked == true;
         _settings.Frames = _frames.SelectedIndex == 1 ? FramePolicy.FirstFrame : FramePolicy.Preserve;
+        _settings.VideoOutputExtension = (_videoFormat.SelectedItem as VideoFormat)?.Extension ?? "mp4";
+        _settings.VideoOutputFolder = _videoOutput.Text;
+        _settings.VideoQuality = _videoQuality.SelectedIndex switch
+        {
+            0 => VideoQuality.High,
+            2 => VideoQuality.Compact,
+            _ => VideoQuality.Balanced
+        };
+        _settings.VideoIncludeAudio = _videoAudio.IsChecked == true;
+        _settings.VideoStripMetadata = _videoStrip.IsChecked == true;
         try { _settings.Save(); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Notify("Preferences not saved", ex.Message, InfoBarSeverity.Warning); }
     }
@@ -606,10 +919,11 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(Text("Convert uses this format and your current output folder, quality, metadata, and frame settings. Open in Fluxa only adds files to the queue. On Windows 11, use Show more options. Explorer supports these commands for selections of up to 15 images.", 13, "Muted"));
         var closeToTray = new ToggleSwitch { Header = "Keep running in the system tray when I close the window", IsOn = _settings.CloseToTray, IsEnabled = _tray != null };
         panel.Children.Add(closeToTray);
-        panel.Children.Add(Text("Closing during a conversion keeps the job running. Use the tray menu to reopen any mode or Exit to stop after the current codec step.", 13, "Muted"));
+        panel.Children.Add(Text("Closing during a conversion keeps the job running. Use the tray menu to reopen any mode or Exit to stop after the current step.", 13, "Muted"));
         panel.Children.Add(Text("Supported local inputs", 16));
-        panel.Children.Add(Text(string.Join(", ", ImageConversionEngine.InputExtensions.Order()), 13, "Muted"));
-        panel.Children.Add(Text("Limits: 512 MB per input, 500 queued files, 256 frames, 32,768 pixels per dimension. Processing uses a bounded pixel cache. Cancellation takes effect between native codec steps.", 13, "Muted"));
+        panel.Children.Add(Text("Images: " + string.Join(", ", ImageConversionEngine.InputExtensions.Order()), 13, "Muted"));
+        panel.Children.Add(Text("Videos: " + string.Join(", ", VideoConversionEngine.InputExtensions.Order()), 13, "Muted"));
+        panel.Children.Add(Text("Limits: 512 MB per image, 4 GB per video, 500 queued files per workspace.", 13, "Muted"));
         var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, RequestedTheme = Root.RequestedTheme, Title = "Settings & supported formats", Content = new ScrollViewer { Content = panel, MaxHeight = 480 }, PrimaryButtonText = "Save", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
         if (await dialog.ShowAsync() == ContentDialogResult.Primary)
         {
@@ -646,11 +960,12 @@ public sealed partial class MainWindow : Window
                 // requests wait, without cancelling or accidentally converting manual imports.
                 while ((_conversion != null || _settingsDialog) && !_exiting) await Task.Delay(100);
                 if (_exiting) return;
+                SwitchMode(ConversionMode.Images);
                 AddFiles(request.Files);
                 if (request.ConvertImmediately)
                 {
                     var paths = request.Files.ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    var items = _queue.Where(item => !item.Complete && paths.Contains(item.Path)).ToArray();
+                    var items = _imageFiles.Items.Where(item => !item.Complete && paths.Contains(item.Path)).ToArray();
                     var format = ImageConversionEngine.OutputFormats.First(f => f.Extension == _settings.ContextMenuExtension);
                     await ConvertQueueAsync(items, format);
                 }
@@ -662,7 +977,8 @@ public sealed partial class MainWindow : Window
 
     private Task OpenOutputAsync()
     {
-        try { Directory.CreateDirectory(_output.Text); Process.Start(new ProcessStartInfo(_output.Text) { UseShellExecute = true }); }
+        var folder = _currentMode == ConversionMode.Video ? _videoOutput.Text : _output.Text;
+        try { Directory.CreateDirectory(folder); Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true }); }
         catch (Exception ex) { Notify("Could not open output folder", ex.Message, InfoBarSeverity.Error); }
         return Task.CompletedTask;
     }
@@ -672,7 +988,7 @@ public sealed partial class MainWindow : Window
         AppWindow.Show();
         Activate();
         TrayIcon.Restore(_hwnd);
-        if (mode.HasValue) SwitchMode(mode.Value);
+        if (mode.HasValue && _conversion == null) SwitchMode(mode.Value);
     }
 
     private void Exit()

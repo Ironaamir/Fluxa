@@ -86,7 +86,11 @@ if($Inspect){Dump;return}
 if(!$Resume) {
 Invoke 'Clear queue'
 Screenshot 'app-images'
-foreach($mode in @('Video','Audio','PDF')) {
+Invoke 'Video mode'
+Find 'Convert video' | Out-Null
+Find 'Video drop zone' | Out-Null
+'PASS: Video navigation'
+foreach($mode in @('Audio','PDF')) {
  Invoke "$mode mode"
  $expected="$mode conversion is on the way"
  Find $expected | Out-Null

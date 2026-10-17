@@ -47,11 +47,10 @@ function ClickMenuItem($menu,$index){
 }
 foreach($mode in @('Video','Audio','PDF','Images')){
  $menu=OpenTrayMenu
- $label=if($mode -eq 'Images'){'Images'}else{"$mode $([char]0x2014) coming later"}
  $index=@('Images','Video','Audio','PDF').IndexOf($mode)
  ClickMenuItem $menu $index
  Start-Sleep -Milliseconds 350
- $heading=if($mode -eq 'Images'){'Convert images'}else{"$mode conversion is on the way"}
+ $heading=if($mode -eq 'Images'){'Convert images'}elseif($mode -eq 'Video'){'Convert video'}else{"$mode conversion is on the way"}
  Find $heading | Out-Null
  "PASS: tray native menu routes to $mode"
 }

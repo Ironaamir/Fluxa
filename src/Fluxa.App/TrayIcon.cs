@@ -69,7 +69,7 @@ internal sealed class TrayIcon : IDisposable
         try
         {
             AppendMenu(menu, 0, 1, "Images");
-            AppendMenu(menu, 0, 2, "Video — coming later");
+            AppendMenu(menu, 0, 2, "Video");
             AppendMenu(menu, 0, 3, "Audio — coming later");
             AppendMenu(menu, 0, 4, "PDF — coming later");
             AppendMenu(menu, 0x800, 0, null);
